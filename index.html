@@ -493,10 +493,10 @@
 
   function render() {
     const pct = Math.min(MAX, currentPct);
-    const display = pct >= MAX ? '100.0' : pct.toFixed(1);
+    const display = pct >= MAX ? '100.000' : pct.toFixed(3);
     fill.style.width = pct + '%';
     if (pct >= MAX) {
-      note.textContent = '이마 스케일: 100.0% 🌌 우주 정복 완료!';
+      note.textContent = '이마 스케일: 100.000% 🌌 우주 정복 완료!';
       btn.textContent = '🌌 우주 이마 달성!';
       btn.classList.add('maxed');
     } else {

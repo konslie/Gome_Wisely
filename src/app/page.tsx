@@ -43,10 +43,19 @@ export default function Home() {
 
   async function login(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage("");
-    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
-    const body = await response.json(); setBusy(false);
-    if (response.ok) { setPin(""); setMessage(""); setAuthenticated(true); }
-    else setMessage(body.error);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }), signal: controller.signal });
+      const body = await response.json();
+      if (response.ok) { setPin(""); setMessage(""); setAuthenticated(true); }
+      else setMessage(body.error || "로그인에 실패했습니다.");
+    } catch {
+      setMessage("로그인 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      clearTimeout(timeout);
+      setBusy(false);
+    }
   }
 
   async function addItem(event: FormEvent) {

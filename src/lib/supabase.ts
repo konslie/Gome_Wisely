@@ -10,5 +10,11 @@ export function getSupabaseAdmin() {
 
   return createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) => fetch(input, {
+        ...init,
+        signal: init?.signal ?? AbortSignal.timeout(8_000),
+      }),
+    },
   });
 }

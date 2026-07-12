@@ -29,6 +29,7 @@ create index if not exists cart_items_delivery_status_created_idx
 create table if not exists public.purchase_batches (
   purchase_id uuid primary key default gen_random_uuid(),
   purchased_at timestamptz not null default now(),
+  delivery_type text not null check (delivery_type in ('ambient', 'fresh')),
   item_count integer not null check (item_count > 0)
 );
 
@@ -48,7 +49,7 @@ create table if not exists public.purchased_items (
 create index if not exists purchased_items_name_idx
   on public.purchased_items (item_name, purchased_at desc);
 
-create or replace function public.complete_cart_purchase()
+create or replace function public.complete_cart_purchase(target_delivery_type text)
 returns table (purchase_id uuid, item_count integer, purchased_at timestamptz)
 language plpgsql
 security definer
@@ -59,16 +60,20 @@ declare
   completed_at timestamptz := now();
   completed_count integer;
 begin
+  if target_delivery_type not in ('ambient', 'fresh') then
+    raise exception '배송 유형이 올바르지 않습니다.';
+  end if;
+
   select count(*) into completed_count
   from public.cart_items
-  where status = 'active';
+  where status = 'active' and delivery_type = target_delivery_type;
 
   if completed_count = 0 then
     raise exception '장바구니가 비어 있습니다.';
   end if;
 
-  insert into public.purchase_batches (purchased_at, item_count)
-  values (completed_at, completed_count)
+  insert into public.purchase_batches (purchased_at, delivery_type, item_count)
+  values (completed_at, target_delivery_type, completed_count)
   returning purchase_batches.purchase_id into completed_id;
 
   insert into public.purchased_items (
@@ -78,11 +83,11 @@ begin
   select completed_id, item_id, input_value, input_type, item_name,
     quantity, delivery_type, product_url, completed_at
   from public.cart_items
-  where status = 'active';
+  where status = 'active' and delivery_type = target_delivery_type;
 
   update public.cart_items
   set status = 'purchased', updated_at = completed_at
-  where status = 'active';
+  where status = 'active' and delivery_type = target_delivery_type;
 
   return query select completed_id, completed_count, completed_at;
 end;
@@ -98,8 +103,8 @@ revoke all on public.auth_settings from anon, authenticated;
 revoke all on public.cart_items from anon, authenticated;
 revoke all on public.purchase_batches from anon, authenticated;
 revoke all on public.purchased_items from anon, authenticated;
-revoke all on function public.complete_cart_purchase() from public, anon, authenticated;
-grant execute on function public.complete_cart_purchase() to service_role;
+revoke all on function public.complete_cart_purchase(text) from public, anon, authenticated;
+grant execute on function public.complete_cart_purchase(text) to service_role;
 
 -- 아래 <PIN>을 실제 숫자 4자리로 바꿔 Supabase SQL Editor에서 최초 1회 실행한다.
 -- 실행 후 SQL Editor의 쿼리 기록에서 원문 PIN이 남지 않도록 해당 쿼리를 삭제한다.

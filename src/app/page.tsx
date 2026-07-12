@@ -169,7 +169,11 @@ export default function Home() {
     setCompletingPurchase(true);
     setMessage("");
     try {
-      const response = await fetch("/api/cart/complete", { method: "POST" });
+      const response = await fetch("/api/cart/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deliveryType: tab }),
+      });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       setItems([]);
@@ -241,8 +245,8 @@ export default function Home() {
 
       {items.length > 0 && (
         <div className="list-toolbar">
-          <div><strong>구매 준비가 끝났나요?</strong><span>완료하면 현재 장바구니를 구매 이력으로 저장합니다.</span></div>
-          <button className="button primary" onClick={() => setShowCompleteDialog(true)}>장바구니 구매 완료</button>
+          <div><strong>{tab === "ambient" ? "상온배송" : "신선배송"} 구매 준비가 끝났나요?</strong><span>현재 배송 유형의 품목만 구매 이력으로 저장합니다.</span></div>
+          <button className="button primary" onClick={() => setShowCompleteDialog(true)}>{tab === "ambient" ? "상온배송" : "신선배송"} 구매 완료</button>
         </div>
       )}
 
@@ -272,8 +276,8 @@ export default function Home() {
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !completingPurchase) setShowCompleteDialog(false); }}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="complete-title">
             <div className="modal-icon" aria-hidden="true">✓</div>
-            <h2 id="complete-title">장바구니 구매 완료</h2>
-            <p>장바구니 구매 완료에 따라 장바구니가 초기화됩니다.</p>
+            <h2 id="complete-title">{tab === "ambient" ? "상온배송" : "신선배송"} 구매 완료</h2>
+            <p>구매 완료에 따라 {tab === "ambient" ? "상온배송" : "신선배송"} 장바구니만 초기화됩니다. 다른 배송 유형의 품목은 유지됩니다.</p>
             <div className="modal-actions">
               <button className="button ghost" disabled={completingPurchase} onClick={() => setShowCompleteDialog(false)}>취소</button>
               <button className="button primary" disabled={completingPurchase} onClick={() => void completePurchase()}>{completingPurchase && <span className="spinner" />}{completingPurchase ? "처리 중" : "완료"}</button>

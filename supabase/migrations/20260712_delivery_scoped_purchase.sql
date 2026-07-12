@@ -1,35 +1,27 @@
-alter table public.cart_items drop constraint if exists cart_items_status_check;
-alter table public.cart_items
-  add constraint cart_items_status_check
-  check (status in ('active', 'deleted', 'purchased'));
+drop function if exists public.complete_cart_purchase();
 
-create table if not exists public.purchase_batches (
-  purchase_id uuid primary key default gen_random_uuid(),
-  purchased_at timestamptz not null default now(),
-  delivery_type text not null check (delivery_type in ('ambient', 'fresh')),
-  item_count integer not null check (item_count > 0)
-);
+alter table public.purchase_batches
+  add column if not exists delivery_type text;
 
-create table if not exists public.purchased_items (
-  purchased_item_id uuid primary key default gen_random_uuid(),
-  purchase_id uuid not null references public.purchase_batches(purchase_id) on delete cascade,
-  source_item_id uuid not null,
-  input_value text not null,
-  input_type text not null check (input_type in ('text', 'url')),
-  item_name varchar(100) not null,
-  quantity integer not null check (quantity >= 1 and quantity <= 999),
-  delivery_type text not null check (delivery_type in ('ambient', 'fresh')),
-  product_url varchar(2048),
-  purchased_at timestamptz not null
-);
+update public.purchase_batches as batch
+set delivery_type = coalesce((
+  select case
+    when count(distinct item.delivery_type) = 1 then min(item.delivery_type)
+    else 'mixed'
+  end
+  from public.purchased_items as item
+  where item.purchase_id = batch.purchase_id
+), 'mixed')
+where delivery_type is null;
 
-create index if not exists purchased_items_name_idx
-  on public.purchased_items (item_name, purchased_at desc);
+alter table public.purchase_batches
+  alter column delivery_type set not null;
 
-alter table public.purchase_batches enable row level security;
-alter table public.purchased_items enable row level security;
-revoke all on public.purchase_batches from anon, authenticated;
-revoke all on public.purchased_items from anon, authenticated;
+alter table public.purchase_batches
+  drop constraint if exists purchase_batches_delivery_type_check;
+alter table public.purchase_batches
+  add constraint purchase_batches_delivery_type_check
+  check (delivery_type in ('ambient', 'fresh', 'mixed'));
 
 create or replace function public.complete_cart_purchase(target_delivery_type text)
 returns table (purchase_id uuid, item_count integer, purchased_at timestamptz)

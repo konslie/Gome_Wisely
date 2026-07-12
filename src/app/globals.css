@@ -1,5 +1,12 @@
-@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css");
 @import "tailwindcss";
+
+@font-face {
+  font-family: Pretendard;
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/woff2/Pretendard-Regular.subset.woff2") format("woff2");
+}
 
 :root { --ink:#17211b; --muted:#66736b; --green:#1d5b3a; --green-soft:#eaf4ed; --line:#dce4df; --paper:#fbfcfa; --danger:#a13b32; }
 * { box-sizing:border-box; }

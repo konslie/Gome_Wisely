@@ -40,7 +40,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "PIN이 올바르지 않습니다." }, { status: 401 });
   }
 
-  await supabase.from("auth_settings").update({ failed_attempt_count: 0, locked_until: null }).eq("id", 1);
+  if (settings.failed_attempt_count !== 0 || settings.locked_until !== null) {
+    await supabase.from("auth_settings").update({ failed_attempt_count: 0, locked_until: null }).eq("id", 1);
+  }
   await createSession(settings.session_version);
   return NextResponse.json({ ok: true });
 }

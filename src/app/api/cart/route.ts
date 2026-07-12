@@ -11,7 +11,7 @@ async function resolveProductName(productUrl: string) {
       || url.hostname.endsWith(".wiselycompany.com");
     if (!allowed) return null;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    const timeout = setTimeout(() => controller.abort(), 900);
     const response = await fetch(productUrl, {
       signal: controller.signal,
       headers: { "User-Agent": "Mozilla/5.0 (compatible; WiselyCart/1.0)" },

@@ -1,9 +1,15 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type DeliveryType = "ambient" | "fresh";
-type CartItem = { item_id: string; item_name: string; quantity: number; delivery_type: DeliveryType; product_url: string | null };
+type CartItem = {
+  item_id: string;
+  item_name: string;
+  quantity: number;
+  delivery_type: DeliveryType;
+  product_url: string | null;
+};
 
 export default function Home() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -14,42 +20,59 @@ export default function Home() {
   const [quantity, setQuantity] = useState(1);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-
-  const loadItems = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/cart?deliveryType=${tab}`);
-      if (response.status === 401) { setMessage(""); setAuthenticated(false); return; }
-      const body = await response.json();
-      if (response.ok) setItems(body.items);
-      else setMessage(body.error);
-    } catch {
-      setMessage("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
-    }
-  }, [tab]);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const [undoItem, setUndoItem] = useState<CartItem | null>(null);
 
   useEffect(() => {
-    fetch("/api/auth/session").then((response) => response.json()).then((body) => setAuthenticated(body.authenticated));
+    fetch("/api/auth/session")
+      .then((response) => response.json())
+      .then((body) => setAuthenticated(body.authenticated))
+      .catch(() => setAuthenticated(false));
   }, []);
+
   useEffect(() => {
     if (!authenticated) return;
-    fetch(`/api/cart?deliveryType=${tab}`).then((response) => {
-      if (response.status === 401) { setMessage(""); setAuthenticated(false); }
-      return response.json();
-    }).then((body) => {
-      if (body.items) setItems(body.items);
-      else if (body.error) setMessage(body.error);
-    }).catch(() => setMessage("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."));
+    fetch(`/api/cart?deliveryType=${tab}`)
+      .then((response) => {
+        if (response.status === 401) {
+          setMessage("");
+          setAuthenticated(false);
+        }
+        return response.json();
+      })
+      .then((body) => {
+        if (body.items) setItems(body.items);
+        else if (body.error) setMessage(body.error);
+      })
+      .catch(() => setMessage("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."));
   }, [authenticated, tab]);
 
+  useEffect(() => {
+    if (!undoItem) return;
+    const timeout = setTimeout(() => setUndoItem(null), 5_000);
+    return () => clearTimeout(timeout);
+  }, [undoItem]);
+
   async function login(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage("");
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }), signal: controller.signal });
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
+        signal: controller.signal,
+      });
       const body = await response.json();
-      if (response.ok) { setPin(""); setMessage(""); setAuthenticated(true); }
-      else setMessage(body.error || "로그인에 실패했습니다.");
+      if (response.ok) {
+        setPin("");
+        setAuthenticated(true);
+      } else {
+        setMessage(body.error || "로그인에 실패했습니다.");
+      }
     } catch {
       setMessage("로그인 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -59,30 +82,173 @@ export default function Home() {
   }
 
   async function addItem(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage("");
-    const response = await fetch("/api/cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputValue, quantity, deliveryType: tab }) });
-    const body = await response.json(); setBusy(false);
-    if (response.ok) { setInputValue(""); setQuantity(1); await loadItems(); }
-    else setMessage(body.error);
-  }
-
-  async function updateItem(id: string, changes: { quantity?: number; deliveryType?: DeliveryType }) {
+    event.preventDefault();
+    setBusy(true);
     setMessage("");
-    const response = await fetch(`/api/cart/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
-    const body = await response.json();
-    if (response.ok) await loadItems(); else setMessage(body.error);
+    try {
+      const response = await fetch("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputValue, quantity, deliveryType: tab }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setItems((current) => [body.item, ...current]);
+      setInputValue("");
+      setQuantity(1);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "상품을 추가하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function deleteItem(id: string) {
-    const response = await fetch(`/api/cart/${id}`, { method: "DELETE" });
-    const body = await response.json();
-    if (response.ok) await loadItems(); else setMessage(body.error);
+  async function updateItem(item: CartItem, changes: { quantity?: number; deliveryType?: DeliveryType }) {
+    if (pendingIds.has(item.item_id)) return;
+    setMessage("");
+    setPendingIds((current) => new Set(current).add(item.item_id));
+    const moved = changes.deliveryType && changes.deliveryType !== tab;
+    setItems((current) => moved
+      ? current.filter((candidate) => candidate.item_id !== item.item_id)
+      : current.map((candidate) => candidate.item_id === item.item_id ? { ...candidate, ...changes, delivery_type: changes.deliveryType ?? candidate.delivery_type } : candidate));
+
+    try {
+      const response = await fetch(`/api/cart/${item.item_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      if (!moved) {
+        setItems((current) => current.map((candidate) => candidate.item_id === item.item_id ? body.item : candidate));
+      }
+    } catch (error) {
+      setItems((current) => [item, ...current.filter((candidate) => candidate.item_id !== item.item_id)]);
+      setMessage(error instanceof Error ? error.message : "상품을 변경하지 못했습니다.");
+    } finally {
+      setPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(item.item_id);
+        return next;
+      });
+    }
   }
 
-  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); setAuthenticated(false); setItems([]); }
+  async function deleteItem(item: CartItem) {
+    if (pendingIds.has(item.item_id)) return;
+    setItems((current) => current.filter((candidate) => candidate.item_id !== item.item_id));
+    setUndoItem(item);
+    try {
+      const response = await fetch(`/api/cart/${item.item_id}`, { method: "DELETE" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+    } catch (error) {
+      setItems((current) => [item, ...current]);
+      setUndoItem(null);
+      setMessage(error instanceof Error ? error.message : "상품을 삭제하지 못했습니다.");
+    }
+  }
 
-  if (authenticated === null) return <main className="shell"><p>불러오는 중...</p></main>;
-  if (!authenticated) return <main className="shell login"><section className="panel"><p className="eyebrow">우리집 쇼핑 메모</p><h1>고메 Wisely 장바구니</h1><p className="muted">함께 사용할 숫자 4자리 PIN을 입력하세요.</p><form onSubmit={login}><label htmlFor="pin">공용 PIN</label><input id="pin" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" autoComplete="current-password" maxLength={4} pattern="\d{4}" required autoFocus /><button disabled={busy || pin.length !== 4}>{busy ? "확인 중..." : "들어가기"}</button></form>{message && <p className="error" role="alert">{message}</p>}</section></main>;
+  async function undoDelete() {
+    if (!undoItem) return;
+    const item = undoItem;
+    setUndoItem(null);
+    setItems((current) => [item, ...current]);
+    const response = await fetch(`/api/cart/${item.item_id}/restore`, { method: "POST" });
+    if (!response.ok) {
+      setItems((current) => current.filter((candidate) => candidate.item_id !== item.item_id));
+      setMessage("삭제를 되돌리지 못했습니다.");
+    }
+  }
 
-  return <main className="shell"><header><div><p className="eyebrow">우리집 쇼핑 메모</p><h1>고메 Wisely 장바구니</h1></div><button className="secondary compact" onClick={logout}>로그아웃</button></header><nav className="tabs" aria-label="배송 유형">{(["ambient", "fresh"] as const).map((value) => <button key={value} className={tab === value ? "active" : ""} aria-pressed={tab === value} onClick={() => setTab(value)}>{value === "ambient" ? "상온배송" : "신선배송"}</button>)}</nav><section className="panel add"><form onSubmit={addItem}><label htmlFor="item">제품명 또는 와이즐리 URL</label><input id="item" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="필요한 제품을 빠르게 적어보세요" required /><div className="add-row"><div className="quantity-row"><span>수량</span><div className="stepper"><button type="button" className="secondary" disabled={quantity === 1} onClick={() => setQuantity((v) => Math.max(1, v - 1))}>−</button><input aria-label="수량" type="number" min="1" max="999" value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))} /><button type="button" className="secondary" onClick={() => setQuantity((v) => v + 1)}>＋</button></div></div><button disabled={busy}>{busy ? "추가 중..." : "장바구니에 추가"}</button></div></form>{message && <p className="error" role="alert">{message}</p>}</section><section className="list" aria-live="polite">{items.length === 0 ? <div className="empty"><h2>{tab === "ambient" ? "상온배송" : "신선배송"} 장바구니가 비어 있습니다.</h2><p>필요한 제품명이나 와이즐리 URL을 추가해보세요.</p></div> : items.map((item) => <article className="card" key={item.item_id}><h2>{item.item_name}</h2><div className="stepper"><button className="secondary" disabled={item.quantity === 1} onClick={() => updateItem(item.item_id, { quantity: item.quantity - 1 })}>−</button><input aria-label={`${item.item_name} 수량`} type="number" min="1" max="999" value={item.quantity} onChange={(e) => updateItem(item.item_id, { quantity: Math.max(1, Number(e.target.value)) })} /><button className="secondary" onClick={() => updateItem(item.item_id, { quantity: item.quantity + 1 })}>＋</button></div><div className="actions">{item.product_url && <a href={item.product_url} target="_blank" rel="noreferrer">와이즐리에서 보기</a>}<button className="secondary" onClick={() => updateItem(item.item_id, { deliveryType: tab === "ambient" ? "fresh" : "ambient" })}>{tab === "ambient" ? "신선배송" : "상온배송"}으로 이동</button><button className="danger" onClick={() => deleteItem(item.item_id)}>삭제</button></div></article>)}</section></main>;
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setAuthenticated(false);
+    setItems([]);
+  }
+
+  if (authenticated === null) {
+    return <main className="shell loading-screen"><span className="spinner" /> 불러오는 중</main>;
+  }
+
+  if (!authenticated) {
+    return (
+      <main className="shell login">
+        <section className="panel login-panel">
+          <p className="eyebrow">우리집 쇼핑 메모</p>
+          <h1>고메 Wisely 장바구니</h1>
+          <p className="muted">함께 사용할 숫자 4자리 PIN을 입력하세요.</p>
+          <form onSubmit={login}>
+            <label htmlFor="pin">공용 PIN</label>
+            <input id="pin" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" autoComplete="current-password" maxLength={4} pattern="\d{4}" required autoFocus />
+            <button className="button primary wide" disabled={busy || pin.length !== 4}>
+              {busy && <span className="spinner" />}{busy ? "확인 중" : "들어가기"}
+            </button>
+          </form>
+          {message && <p className="error" role="alert">{message}</p>}
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="shell">
+      <header>
+        <div><p className="eyebrow">우리집 쇼핑 메모</p><h1>고메 Wisely 장바구니</h1></div>
+        <button className="button ghost compact" onClick={logout}>로그아웃</button>
+      </header>
+
+      <nav className="tabs" aria-label="배송 유형">
+        {(["ambient", "fresh"] as const).map((value) => (
+          <button key={value} className={tab === value ? "active" : ""} aria-pressed={tab === value} onClick={() => setTab(value)}>
+            {value === "ambient" ? "상온배송" : "신선배송"}
+          </button>
+        ))}
+      </nav>
+
+      <section className="panel add-panel">
+        <form onSubmit={addItem}>
+          <label htmlFor="item">제품명 또는 와이즐리 URL</label>
+          <input id="item" value={inputValue} onChange={(event) => setInputValue(event.target.value)} placeholder="필요한 제품을 빠르게 적어보세요" required />
+          <div className="add-row">
+            <div className="quantity-row"><span>수량</span><QuantityStepper value={quantity} onChange={setQuantity} /></div>
+            <button className="button primary" disabled={busy}>{busy && <span className="spinner" />}{busy ? "추가 중" : "장바구니에 추가"}</button>
+          </div>
+        </form>
+        {message && <p className="error" role="alert">{message}</p>}
+      </section>
+
+      <section className="list" aria-live="polite">
+        {items.length === 0 ? (
+          <div className="empty"><h2>{tab === "ambient" ? "상온배송" : "신선배송"} 목록이 비어 있습니다</h2><p>필요한 제품명이나 와이즐리 URL을 추가해보세요.</p></div>
+        ) : items.map((item) => {
+          const pending = pendingIds.has(item.item_id);
+          return (
+            <article className={`item-row${pending ? " pending" : ""}`} key={item.item_id}>
+              <h2 title={item.item_name}>{item.item_name}</h2>
+              <QuantityStepper value={item.quantity} disabled={pending} label={`${item.item_name} 수량`} onChange={(value) => void updateItem(item, { quantity: value })} />
+              <div className="actions">
+                {item.product_url && <a className="button ghost" href={item.product_url} target="_blank" rel="noreferrer">상품 보기</a>}
+                <button className="button secondary" disabled={pending} onClick={() => void updateItem(item, { deliveryType: tab === "ambient" ? "fresh" : "ambient" })}>{tab === "ambient" ? "신선" : "상온"}으로 이동</button>
+                <button className="button danger" disabled={pending} onClick={() => void deleteItem(item)}>삭제</button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+
+      {undoItem && <div className="toast" role="status"><span>상품을 삭제했습니다.</span><button onClick={() => void undoDelete()}>실행 취소</button></div>}
+    </main>
+  );
+}
+
+function QuantityStepper({ value, onChange, disabled = false, label = "수량" }: { value: number; onChange: (value: number) => void; disabled?: boolean; label?: string }) {
+  return (
+    <div className="stepper">
+      <button type="button" className="step-button" disabled={disabled || value <= 1} onClick={() => onChange(Math.max(1, value - 1))} aria-label={`${label} 감소`}>−</button>
+      <input aria-label={label} type="number" min="1" max="999" value={value} disabled={disabled} onChange={(event) => onChange(Math.max(1, Number(event.target.value)))} />
+      <button type="button" className="step-button" disabled={disabled} onClick={() => onChange(value + 1)} aria-label={`${label} 증가`}>＋</button>
+    </div>
+  );
 }

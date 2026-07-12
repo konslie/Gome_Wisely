@@ -26,6 +26,7 @@
 *.pem
 *.md
 !README.md
+!MEMORY.md
 
 # debug
 npm-debug.log*

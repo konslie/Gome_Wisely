@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "우리집 와이즐리 장바구니",
+  title: "고메 Wisely 장바구니",
   description: "필요한 와이즐리 상품을 함께 기록하는 공동 장바구니",
 };
 

@@ -22,6 +22,9 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [undoItem, setUndoItem] = useState<CartItem | null>(null);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [completingPurchase, setCompletingPurchase] = useState(false);
+  const [completedCount, setCompletedCount] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -162,6 +165,23 @@ export default function Home() {
     }
   }
 
+  async function completePurchase() {
+    setCompletingPurchase(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/cart/complete", { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setItems([]);
+      setCompletedCount(body.purchase.item_count);
+      setShowCompleteDialog(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "구매 완료 처리에 실패했습니다.");
+    } finally {
+      setCompletingPurchase(false);
+    }
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setAuthenticated(false);
@@ -219,6 +239,13 @@ export default function Home() {
         {message && <p className="error" role="alert">{message}</p>}
       </section>
 
+      {items.length > 0 && (
+        <div className="list-toolbar">
+          <div><strong>구매 준비가 끝났나요?</strong><span>완료하면 현재 장바구니를 구매 이력으로 저장합니다.</span></div>
+          <button className="button primary" onClick={() => setShowCompleteDialog(true)}>장바구니 구매 완료</button>
+        </div>
+      )}
+
       <section className="list" aria-live="polite">
         {items.length === 0 ? (
           <div className="empty"><h2>{tab === "ambient" ? "상온배송" : "신선배송"} 목록이 비어 있습니다</h2><p>필요한 제품명이나 와이즐리 URL을 추가해보세요.</p></div>
@@ -239,6 +266,21 @@ export default function Home() {
       </section>
 
       {undoItem && <div className="toast" role="status"><span>상품을 삭제했습니다.</span><button onClick={() => void undoDelete()}>실행 취소</button></div>}
+      {completedCount !== null && <div className="toast" role="status"><span>{completedCount}개 품목을 구매 이력에 저장했습니다.</span><button onClick={() => setCompletedCount(null)}>확인</button></div>}
+
+      {showCompleteDialog && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !completingPurchase) setShowCompleteDialog(false); }}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="complete-title">
+            <div className="modal-icon" aria-hidden="true">✓</div>
+            <h2 id="complete-title">장바구니 구매 완료</h2>
+            <p>장바구니 구매 완료에 따라 장바구니가 초기화됩니다.</p>
+            <div className="modal-actions">
+              <button className="button ghost" disabled={completingPurchase} onClick={() => setShowCompleteDialog(false)}>취소</button>
+              <button className="button primary" disabled={completingPurchase} onClick={() => void completePurchase()}>{completingPurchase && <span className="spinner" />}{completingPurchase ? "처리 중" : "완료"}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

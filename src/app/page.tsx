@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useState } from "react";
 
 type DeliveryType = "ambient" | "fresh";
@@ -220,7 +221,13 @@ export default function Home() {
     <main className="shell">
       <header>
         <div><p className="eyebrow">우리집 쇼핑 메모</p><h1>고메 Wisely 장바구니</h1></div>
-        <button className="button ghost compact" onClick={logout}>로그아웃</button>
+        <div className="header-actions">
+          <a className="button ghost compact" href="https://shop.wisely.store" target="_blank" rel="noopener noreferrer">
+            <Image src="/wisely-favicon.png" alt="" width={20} height={20} />
+            와이즐리 바로가기
+          </a>
+          <button className="button ghost compact" onClick={logout}>로그아웃</button>
+        </div>
       </header>
 
       <nav className="tabs" aria-label="배송 유형">
